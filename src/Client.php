@@ -18,18 +18,15 @@ class Client
     /** @var MulticastFactory */
     private $multicast;
 
-    /**
-     * This class takes an optional `LoopInterface|null $loop` parameter that can be used to
-     * pass the event loop instance to use for this object. You can use a `null` value
-     * here in order to use the [default loop](https://github.com/reactphp/event-loop#loop).
-     * This value SHOULD NOT be given unless you're sure you want to explicitly use a
-     * given event loop instance.
-     *
-     * @param ?LoopInterface $loop
-     * @param ?MulticastFactory $multicast
-     */
-    public function __construct(LoopInterface $loop = null, MulticastFactory $multicast = null)
+    public function __construct($loop = null, $multicast = null)
     {
+        if ($loop !== null && !$loop instanceof LoopInterface) {
+            throw new \InvalidArgumentException('Argument #1 ($loop) expected null|React\EventLoop\LoopInterface');
+        }
+        if ($multicast !== null && !$multicast instanceof MulticastFactory) {
+            throw new \InvalidArgumentException('Argument #2 ($multicast) expected null|Clue\React\Multicast\Factory');
+        }
+
         $this->loop = $loop ?: Loop::get();
         $this->multicast = $multicast ?: new MulticastFactory($this->loop);
     }
@@ -46,29 +43,32 @@ class Client
         $socket = $this->multicast->createSender();
         // TODO: The TTL for the IP packet SHOULD default to 2 and SHOULD be configurable.
 
-        $timer = $this->loop->addTimer($mx, function() use ($socket, &$deferred) {
-            $deferred->resolve();
+        $messages = array();
+
+        $timer = $this->loop->addTimer($mx, function() use ($socket, &$deferred, &$messages) {
+            // resolve promise with all collected messages
+            $deferred->resolve($messages);
             $socket->close();
         });
 
-        $loop = $this->loop;
-        $deferred = new Deferred(function () use ($socket, &$timer, $loop) {
-            // canceling resulting promise cancels timer and closes socket
-            $loop->cancelTimer($timer);
-            $socket->close();
-            throw new RuntimeException('Cancelled');
-        });
+            $loop = $this->loop;
+            $deferred = new Deferred(function () use ($socket, &$timer, $loop) {
+                // canceling resulting promise cancels timer and closes socket
+                $loop->cancelTimer($timer);
+                $socket->close();
+                throw new RuntimeException('Cancelled');
+            });
 
-        $that = $this;
-        $socket->on('message', function ($data, $remote) use ($deferred, $that) {
-            $message = $that->parseMessage($data, $remote);
+                $that = $this;
+                $socket->on('message', function ($data, $remote) use ($that, &$messages) {
+                    $message = $that->parseMessage($data, $remote);
 
-            $deferred->progress($message);
-        });
+                    $messages[] = $message;
+                });
 
-        $socket->send($data, self::ADDRESS);
+                    $socket->send($data, self::ADDRESS);
 
-        return $deferred->promise();
+                    return $deferred->promise();
     }
 
     /** @internal */

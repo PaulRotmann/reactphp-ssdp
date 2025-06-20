@@ -39,26 +39,26 @@ class ClientTest extends TestCase
         // prefer newer EventLoop 1.0/0.5+ TimerInterface or fall back to legacy namespace
         $timer = $this->getMockBuilder(
             interface_exists('React\EventLoop\TimerInterface') ? 'React\EventLoop\TimerInterface' : 'React\EventLoop\Timer\TimerInterface'
-        )->getMock();
+            )->getMock();
 
-        $loop->expects($this->once())->method('addTimer')->willReturn($timer);
-        $loop->expects($this->once())->method('cancelTimer')->with($timer);
+            $loop->expects($this->once())->method('addTimer')->willReturn($timer);
+            $loop->expects($this->once())->method('cancelTimer')->with($timer);
 
-        $multicast->expects($this->once())->method('createSender')->will($this->returnValue($socket));
+            $multicast->expects($this->once())->method('createSender')->will($this->returnValue($socket));
 
-        $promise = $client->search();
+            $promise = $client->search();
 
-        $this->assertInstanceOf('React\Promise\PromiseInterface', $promise);
+            $this->assertInstanceOf('React\Promise\PromiseInterface', $promise);
 
-        if (!($promise instanceof \React\Promise\CancellablePromiseInterface)) {
-            $this->markTestSkipped();
-        }
+            if (!($promise instanceof \React\Promise\CancellablePromiseInterface)) {
+                $this->markTestSkipped();
+            }
 
-        $socket->expects($this->once())->method('close');
+            $socket->expects($this->once())->method('close');
 
-        $promise->cancel();
+            $promise->cancel();
 
-        $promise->then(null, $this->expectCallableOnce());
+            $promise->then(null, $this->expectCallableOnce());
     }
 
     public function testSearchTimeout()
@@ -67,8 +67,41 @@ class ClientTest extends TestCase
 
         $promise = $client->search('ssdp:all', 0.01);
 
-        Loop::run();
+        $result = null;
+        $promise->then(function ($value) use (&$result) {
+            $result = $value;
+        });
 
-        $promise->then($this->expectCallableOnce(), $this->expectCallableNever(), $this->expectCallableNever());
+            Loop::run();
+
+            $this->assertTrue(is_array($result), 'Expected result to be an array');
     }
+
+
+    public function testCtorThrowsForInvalidLoop()
+    {
+        if (method_exists($this, 'expectException')) {
+            // PHPUnit 5.2+
+            $this->expectException('InvalidArgumentException');
+            $this->expectExceptionMessage('Argument #1 ($loop) expected null|React\EventLoop\LoopInterface');
+        } else {
+            // legacy PHPUnit
+            $this->setExpectedException('InvalidArgumentException', 'Argument #1 ($loop) expected null|React\EventLoop\LoopInterface');
+        }
+
+        new Client('invalid-loop');
+    }
+
+    public function testCtorThrowsForInvalidMulticast()
+    {
+        if (method_exists($this, 'expectException')) {
+            $this->expectException('InvalidArgumentException');
+            $this->expectExceptionMessage('Argument #2 ($multicast) expected null|Clue\React\Multicast\Factory');
+        } else {
+            $this->setExpectedException('InvalidArgumentException', 'Argument #2 ($multicast) expected null|Clue\React\Multicast\Factory');
+        }
+
+        new Client(null, 'invalid-multicast');
+    }
+
 }
